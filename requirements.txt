@@ -1,0 +1,12 @@
+pandas
+pytz
+numpy
+groww
+python-telegram-bot
+python-dotenv
+requests
+websocket-client
+websockets
+asyncio
+aiohttp
+ujson
