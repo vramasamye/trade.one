@@ -49,7 +49,8 @@ class OptimizedGrowwTrader:
         assert all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GROWW_API_KEY, GROWW_SECRET_KEY]), "Missing env vars"
         
         # === Groww API and Feed initialisation ===
-        self.nifty_token = int(os.getenv("NIFTY_EXCHANGE_TOKEN", "26009"))  # Spot index token
+        # For index data, Groww expects the string symbol such as "NIFTY"
+        self.nifty_token = os.getenv("NIFTY_EXCHANGE_TOKEN", "NIFTY")
         try:
             access_token = os.getenv("GROWW_ACCESS_TOKEN")
             if not access_token:
@@ -62,8 +63,14 @@ class OptimizedGrowwTrader:
             raise
 
         self.feed = GrowwFeed(self.groww)
-        # Subscribe to live feed for NIFTY index
-        self.feed.subscribe(indices=[self.nifty_token], on_data=self._on_tick)
+        # Subscribe to live feed for NIFTY index using updated API method
+        instruments_list = [{
+            "exchange": "NSE",
+            "segment": "CASH",
+            "exchange_token": str(self.nifty_token)
+        }]
+        # `subscribe_index_value` streams live index values; callback is triggered on every update
+        self.feed.subscribe_index_value(instruments_list, on_data_received=self._on_tick)
 
         # Start feed in background thread
         self.running = True
@@ -145,7 +152,8 @@ class OptimizedGrowwTrader:
         """Run the WebSocket feed; reconnect on failure"""
         while self.running:
             try:
-                self.feed.run_forever()
+                # `consume` is a blocking call that keeps the WebSocket connection alive
+                self.feed.consume()
             except Exception as e:
                 logger.error(f"Feed disconnected: {e}. Reconnecting in 3s")
                 time.sleep(3)
