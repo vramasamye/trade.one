@@ -10,3 +10,4 @@ websockets
 asyncio
 aiohttp
 ujson
+pyotp
