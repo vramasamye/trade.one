@@ -4,6 +4,7 @@ import threading
 from datetime import datetime, timedelta
 import pytz
 import telegram
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -49,13 +50,15 @@ class TelegramNotifier:
                 bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
                 formatted_message = self._format_message(message)
                 
-                # Send with markdown formatting
-                bot.send_message(
-                    chat_id=TELEGRAM_CHAT_ID, 
-                    text=formatted_message,
-                    parse_mode='Markdown',
-                    disable_web_page_preview=True
-                )
+                # python-telegram-bot v20+ is fully async; wrap call in a short coroutine
+                async def _send():
+                    await bot.send_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        text=formatted_message,
+                        parse_mode='Markdown',
+                        disable_web_page_preview=True
+                    )
+                asyncio.run(_send())
                 
                 self.last_message_time = time.time()
                 print(f"Telegram message sent successfully at {datetime.now().strftime('%H:%M:%S')}")
