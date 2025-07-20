@@ -167,3 +167,54 @@ def send_error_notification(error_msg, timestamp):
         f"Please check the system logs."
     )
     return send_telegram_message(message, priority='high')
+
+def send_daily_morning_message():
+    """Send daily morning greeting message"""
+    message = (
+        f"☀️ *GOOD DAY BOSS* ☀️\n\n"
+        f"🎯 *What is your game plan today!!!* 🎯\n\n"
+        f"📅 *Date:* {datetime.now().strftime('%A, %B %d, %Y')}\n"
+        f"⏰ *Time:* {datetime.now().strftime('%H:%M:%S')}\n"
+        f"📊 *Market Opens:* 09:15 AM\n\n"
+        f"🚀 *Ready to conquer the markets!* 🚀"
+    )
+    return send_telegram_message(message, priority='high')
+
+# Daily message scheduler
+class DailyMessageScheduler:
+    def __init__(self):
+        self.last_message_date = None
+        self.target_hour = 9
+        self.target_minute = 0
+        self.ist = pytz.timezone('Asia/Kolkata')
+        
+    def should_send_daily_message(self):
+        """Check if we should send the daily message"""
+        now = datetime.now(self.ist)
+        
+        # Only Monday to Friday (0=Monday, 6=Sunday)
+        if now.weekday() >= 5:  # Saturday or Sunday
+            return False
+            
+        # Check if it's 9:00 AM
+        if now.hour != self.target_hour or now.minute != self.target_minute:
+            return False
+            
+        # Check if we already sent today
+        today = now.date()
+        if self.last_message_date == today:
+            return False
+            
+        return True
+    
+    def send_daily_message_if_needed(self):
+        """Send daily message if conditions are met"""
+        if self.should_send_daily_message():
+            success = send_daily_morning_message()
+            if success:
+                self.last_message_date = datetime.now(self.ist).date()
+                return True
+        return False
+
+# Global scheduler instance
+_daily_scheduler = DailyMessageScheduler()

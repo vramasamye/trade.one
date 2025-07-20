@@ -7,7 +7,7 @@ import pytz
 from dotenv import load_dotenv
 import pyotp
 from growwapi import GrowwAPI, GrowwFeed
-from telegram_notifier import send_telegram_message, send_startup_notification
+from telegram_notifier import send_telegram_message, send_startup_notification, _daily_scheduler
 
 # Load environment variables
 load_dotenv()
@@ -501,6 +501,10 @@ class OptimizedGrowwTrader:
         try:
             while self.running:
                 time.sleep(1)
+                
+                # Check for daily message every minute
+                if self.tick_count % 60 == 0:
+                    _daily_scheduler.send_daily_message_if_needed()
                 
                 # Print status every 5 minutes
                 if self.tick_count % 300 == 0 and self.tick_count > 0:
