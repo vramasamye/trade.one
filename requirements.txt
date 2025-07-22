@@ -11,3 +11,4 @@ asyncio
 aiohttp
 ujson
 pyotp
+nats-py==2.2.0
