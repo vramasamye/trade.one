@@ -1,7 +1,7 @@
 pandas
 pytz
 numpy
-growwapi
+growwapi==0.0.8
 python-telegram-bot
 python-dotenv
 requests
