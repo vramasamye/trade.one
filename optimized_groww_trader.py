@@ -81,6 +81,7 @@ class OptimizedGrowwTrader:
         self.first15_high = 0.0
         self.first15_low = float('inf')
         self.first15_done = False
+        self.context_set = False  # Flag to track if we've set initial context
         self.breakout = None
         self.breakout_price = 0.0
         self.breakout_time = None
@@ -185,6 +186,10 @@ class OptimizedGrowwTrader:
         self.last_update = timestamp
         self.tick_count += 1
         
+        # Set context on first data reception
+        if not self.context_set:
+            self._set_initial_context(price, timestamp)
+        
         # Update candle data
         self._update_candle(price, timestamp)
         
@@ -196,6 +201,31 @@ class OptimizedGrowwTrader:
             uptime = time.time() - self.start_time
             tps = self.tick_count / uptime if uptime > 0 else 0
             logger.info(f"Performance: {tps:.2f} ticks/sec, Price: {price:.2f}")
+    
+    def _set_initial_context(self, price, timestamp):
+        """Set initial context when feed data is first received"""
+        self.context_set = True
+        
+        # Set current price as initial high/low for context
+        self.first15_high = price
+        self.first15_low = price
+        
+        # Immediately mark as done since we're setting context outside 9:15-9:30 window
+        self.first15_done = True
+        
+        logger.info(f"✅ Initial context set from live data: Price={price:.2f}")
+        
+        # Send Telegram notification with current context
+        message = (
+            f"📊 *Trading Context Set*\n\n"
+            f"🔄 *Script restarted and connected to live feed*\n"
+            f"💹 *Current NIFTY Price:* {price:.2f}\n"
+            f"⏰ *Time:* {timestamp.strftime('%H:%M:%S')}\n\n"
+            f"📌 *Context:* Using current price as baseline\n"
+            f"🎯 *Status:* Ready to monitor breakouts\n\n"
+            f"_Note: This replaces the daily 9:15-9:30 AM window_"
+        )
+        threading.Thread(target=send_telegram_message, args=(message,), daemon=True).start()
     
     def _update_candle(self, price, timestamp):
         """Update 1-minute candle data"""
@@ -257,6 +287,17 @@ class OptimizedGrowwTrader:
         elif timestamp.time() >= datetime.strptime("09:30", "%H:%M").time():
             self.first15_done = True
             logger.info(f"✅ First 15min complete: H={self.first15_high:.2f}, L={self.first15_low:.2f}")
+            
+            # Send Telegram notification for first 15-minute completion
+            message = (
+                f"📊 *First 15-Minute Session Complete*\n\n"
+                f"🔴 *High:* {self.first15_high:.2f}\n"
+                f"🟢 *Low:* {self.first15_low:.2f}\n"
+                f"📈 *Range:* {self.first15_high - self.first15_low:.2f} points\n"
+                f"⏰ *Time:* {timestamp.strftime('%H:%M:%S')}\n\n"
+                f"🎯 Now monitoring for breakouts..."
+            )
+            threading.Thread(target=send_telegram_message, args=(message,), daemon=True).start()
     
     def _in_first15(self, timestamp):
         """Check if timestamp is in first 15 minutes"""
