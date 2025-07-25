@@ -1,14 +1,12 @@
 pandas
 pytz
 numpy
-growwapi>=0.0.8
+growwapi
 python-telegram-bot
 python-dotenv
 requests
 websocket-client
 websockets
-asyncio
 aiohttp
 ujson
 pyotp
-nats-py==2.2.0
