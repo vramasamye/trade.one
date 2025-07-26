@@ -159,7 +159,8 @@ class OptimizedGrowwTrader:
                 # `consume` is a blocking call that keeps the WebSocket connection alive
                 self.feed.consume()
             except Exception as e:
-                logger.error(f"Feed disconnected: {e}. Reconnecting immediately")
+                logger.error(f"Feed disconnected: {e}. Reconnecting in 5 seconds...")
+                time.sleep(5)  # Wait before attempting to reconnect
 
     # Legacy REST method retained for reference but no longer used
     def _get_live_price(self):
@@ -608,8 +609,8 @@ class OptimizedGrowwTrader:
             # Send Telegram notification every 15 minutes (time-based) - MOVED OUTSIDE tick condition
             if current_time - self.last_15min_notification >= 900:  # 15 minutes = 900 seconds
                 logger.info(f"Checking for 15-min notification. Current time: {current_time}, Last notification: {self.last_15min_notification}")
-                self._send_monitoring_notification()
                 self.last_15min_notification = current_time
+                self._send_monitoring_notification()
                 
         except KeyboardInterrupt:
             logger.info("Stopping trader...")
