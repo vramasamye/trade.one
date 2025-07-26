@@ -97,6 +97,8 @@ class OptimizedGrowwTrader:
         # Performance tracking
         self.tick_count = 0
         self.start_time = time.time()
+        self.last_5min_log = time.time()
+        self.last_15min_notification = time.time()
         
 
         
@@ -534,6 +536,51 @@ class OptimizedGrowwTrader:
         strength = (current_price - price_low) / (price_high - price_low)
         return (strength - 0.5) * 2  # Convert to -1 to 1 range
 
+    def _send_monitoring_notification(self):
+        """Send 15-minute monitoring notification"""
+        try:
+            status = self.get_status()
+            current_time = time.time()
+            
+            # Check if we're receiving live data
+            if self.last_update and (current_time - self.last_update.timestamp()) < 60:
+                feed_status = "📶 Active"
+                data_freshness = f"Last update: {int(current_time - self.last_update.timestamp())}s ago"
+            else:
+                feed_status = "❌ Inactive"
+                data_freshness = "No recent data received"
+            
+            # Determine strategy phase
+            if not self.first15_done:
+                phase = "📊 Tracking First 15min"
+            elif self.breakout:
+                phase = f"🎯 {self.breakout} Breakout Detected"
+                if self.retest_confirmed:
+                    phase += " + Retest Confirmed"
+            else:
+                phase = "👀 Monitoring for Breakouts"
+            
+            message = (
+                f"🤖 *15-Minute Monitoring Update*\n\n"
+                f"💹 *NIFTY:* {status['current_price']:.2f}\n"
+                f"📡 *Feed Status:* {feed_status}\n"
+                f"⏱️ *{data_freshness}*\n\n"
+                f"📊 *Context:*\n"
+                f"   • High: {self.first15_high:.2f}\n"
+                f"   • Low: {self.first15_low:.2f}\n"
+                f"   • Range: {self.first15_high - self.first15_low:.2f} points\n\n"
+                f"🎯 *Phase:* {phase}\n"
+                f"📈 *Ticks Processed:* {status['tick_count']:,}\n"
+                f"⏰ *Uptime:* {status['uptime']:.0f}s\n\n"
+                f"_Automated monitoring active_"
+            )
+            
+            threading.Thread(target=send_telegram_message, args=(message,), daemon=True).start()
+            logger.info("📱 15-minute monitoring notification sent")
+            
+        except Exception as e:
+            logger.error(f"Error sending monitoring notification: {e}")
+
     def run(self):
         """Main run method"""
         logger.info("Starting Optimized Groww Trader")
@@ -542,17 +589,26 @@ class OptimizedGrowwTrader:
         try:
             while self.running:
                 time.sleep(1)
+                current_time = time.time()
                 
                 # Check for daily message every minute
                 if self.tick_count % 60 == 0:
                     _daily_scheduler.send_daily_message_if_needed()
                 
-                # Print status every 5 minutes
-                if self.tick_count % 300 == 0 and self.tick_count > 0:
+                # Print status every 5 minutes (time-based)
+                if current_time - self.last_5min_log >= 300:  # 5 minutes = 300 seconds
+                    self.last_5min_log = current_time
                     status = self.get_status()
-                    logger.info(f"Status: Price={status['current_price']:.2f}, "
+                    feed_status = "📶 Receiving" if self.last_update and (current_time - self.last_update.timestamp()) < 60 else "❌ No Data"
+                    logger.info(f"🔄 5min Status: Price={status['current_price']:.2f}, "
                               f"Ticks={status['tick_count']}, "
+                              f"Feed={feed_status}, "
                               f"Uptime={status['uptime']:.0f}s")
+                
+                # Send Telegram notification every 15 minutes (time-based)
+                if current_time - self.last_15min_notification >= 900:  # 15 minutes = 900 seconds
+                    self.last_15min_notification = current_time
+                    self._send_monitoring_notification()
                 
         except KeyboardInterrupt:
             logger.info("Stopping trader...")
