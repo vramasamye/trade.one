@@ -605,12 +605,12 @@ class OptimizedGrowwTrader:
                               f"Ticks={status['tick_count']}, "
                               f"Feed={feed_status}, "
                               f"Uptime={status['uptime']:.0f}s")
-            
-            # Send Telegram notification every 15 minutes (time-based) - MOVED OUTSIDE tick condition
-            if current_time - self.last_15min_notification >= 900:  # 15 minutes = 900 seconds
-                logger.info(f"Checking for 15-min notification. Current time: {current_time}, Last notification: {self.last_15min_notification}")
-                self.last_15min_notification = current_time
-                self._send_monitoring_notification()
+                
+                # Send Telegram notification every 15 minutes (time-based)
+                if current_time - self.last_15min_notification >= 900:  # 15 minutes = 900 seconds
+                    logger.info(f"Checking for 15-min notification. Current time: {current_time}, Last notification: {self.last_15min_notification}")
+                    self.last_15min_notification = current_time
+                    self._send_monitoring_notification()
                 
         except KeyboardInterrupt:
             logger.info("Stopping trader...")
