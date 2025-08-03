@@ -134,6 +134,7 @@ class OptimizedGrowwTrader:
     def _on_tick(self, data: dict):
         """Callback for GrowwFeed; processes incoming tick data"""
         try:
+            logger.info(f"Received data from feed: {data}")
             token_str = str(self.nifty_token)
             tick = data.get(token_str)
             if not tick:
@@ -145,6 +146,7 @@ class OptimizedGrowwTrader:
 
             # Process only during market hours
             if not self._is_market_hours(timestamp):
+                logger.debug(f"Data received outside market hours. Time: {timestamp.strftime('%H:%M:%S')}")
                 return
 
             price = float(tick['ltp'])
@@ -218,17 +220,22 @@ class OptimizedGrowwTrader:
         
         logger.info(f"✅ Initial context set from live data: Price={price:.2f}")
         
-        # Send Telegram notification with current context
+        # Send Telegram notification with current context (first message of the day from feed)
         message = (
-            f"📊 *Trading Context Set*\n\n"
-            f"🔄 *Script restarted and connected to live feed*\n"
-            f"💹 *Current NIFTY Price:* {price:.2f}\n"
-            f"⏰ *Time:* {timestamp.strftime('%H:%M:%S')}\n\n"
-            f"📌 *Context:* Using current price as baseline\n"
-            f"🎯 *Status:* Ready to monitor breakouts\n\n"
-            f"_Note: This replaces the daily 9:15-9:30 AM window_"
+            f"🌅 *FIRST LIVE DATA RECEIVED TODAY* 🌅\n\n"
+            f"📡 *Feed Status:* Connected and Active\n"
+            f"💹 *NIFTY Price:* {price:.2f}\n"
+            f"⏰ *Time:* {timestamp.strftime('%H:%M:%S')}\n"
+            f"📅 *Date:* {timestamp.strftime('%A, %B %d, %Y')}\n\n"
+            f"📊 *Trading Context Set:*\n"
+            f"   • Baseline: {price:.2f}\n"
+            f"   • High: {self.first15_high:.2f}\n"
+            f"   • Low: {self.first15_low:.2f}\n\n"
+            f"🎯 *Status:* Ready to monitor breakouts\n"
+            f"🚀 *Live monitoring activated!*\n\n"
+            f"_This is the first feed message for today_"
         )
-        threading.Thread(target=send_telegram_message, args=(message,), daemon=True).start()
+        threading.Thread(target=send_telegram_message, args=(message, "high"), daemon=True).start()
     
     def _update_candle(self, price, timestamp):
         """Update 1-minute candle data"""
@@ -538,46 +545,45 @@ class OptimizedGrowwTrader:
         return (strength - 0.5) * 2  # Convert to -1 to 1 range
 
     def _send_monitoring_notification(self):
-        """Send 15-minute monitoring notification"""
+        """Send 15-minute monitoring notification only if the feed is active."""
         try:
             status = self.get_status()
             current_time = time.time()
             
-            # Check if we're receiving live data
+            # Only send a notification if we have received data in the last 60 seconds
             if self.last_update and (current_time - self.last_update.timestamp()) < 60:
                 feed_status = "📶 Active"
                 data_freshness = f"Last update: {int(current_time - self.last_update.timestamp())}s ago"
+                
+                # Determine strategy phase
+                if not self.first15_done:
+                    phase = "📊 Tracking First 15min"
+                elif self.breakout:
+                    phase = f"🎯 {self.breakout} Breakout Detected"
+                    if self.retest_confirmed:
+                        phase += " + Retest Confirmed"
+                else:
+                    phase = "👀 Monitoring for Breakouts"
+                
+                message = (
+                    f"🤖 *15-Minute Monitoring Update*\n\n"
+                    f"💹 *NIFTY:* {status['current_price']:.2f}\n"
+                    f"📡 *Feed Status:* {feed_status}\n"
+                    f"⏱️ *{data_freshness}*\n\n"
+                    f"📊 *Context:*\n"
+                    f"   • High: {self.first15_high:.2f}\n"
+                    f"   • Low: {self.first15_low:.2f}\n"
+                    f"   • Range: {self.first15_high - self.first15_low:.2f} points\n\n"
+                    f"🎯 *Phase:* {phase}\n"
+                    f"📈 *Ticks Processed:* {status['tick_count']:,}\n"
+                    f"⏰ *Uptime:* {status['uptime']:.0f}s\n\n"
+                    f"_Automated monitoring active_"
+                )
+                
+                threading.Thread(target=send_telegram_message, args=(message,), daemon=True).start()
+                logger.info("📱 15-minute monitoring notification sent as feed is active.")
             else:
-                feed_status = "❌ Inactive"
-                data_freshness = "No recent data received"
-            
-            # Determine strategy phase
-            if not self.first15_done:
-                phase = "📊 Tracking First 15min"
-            elif self.breakout:
-                phase = f"🎯 {self.breakout} Breakout Detected"
-                if self.retest_confirmed:
-                    phase += " + Retest Confirmed"
-            else:
-                phase = "👀 Monitoring for Breakouts"
-            
-            message = (
-                f"🤖 *15-Minute Monitoring Update*\n\n"
-                f"💹 *NIFTY:* {status['current_price']:.2f}\n"
-                f"📡 *Feed Status:* {feed_status}\n"
-                f"⏱️ *{data_freshness}*\n\n"
-                f"📊 *Context:*\n"
-                f"   • High: {self.first15_high:.2f}\n"
-                f"   • Low: {self.first15_low:.2f}\n"
-                f"   • Range: {self.first15_high - self.first15_low:.2f} points\n\n"
-                f"🎯 *Phase:* {phase}\n"
-                f"📈 *Ticks Processed:* {status['tick_count']:,}\n"
-                f"⏰ *Uptime:* {status['uptime']:.0f}s\n\n"
-                f"_Automated monitoring active_"
-            )
-            
-            threading.Thread(target=send_telegram_message, args=(message,), daemon=True).start()
-            logger.info("📱 15-minute monitoring notification sent")
+                logger.info("Skipping 15-minute notification as feed is inactive.")
             
         except Exception as e:
             logger.error(f"Error sending monitoring notification: {e}")

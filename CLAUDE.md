@@ -1,76 +1,121 @@
-Using Gemini CLI for Large Codebase Analysis
-When analyzing large codebases or multiple files that might exceed context limits, use the Gemini CLI with its massive context window. Use gemini -p to leverage Google Gemini's large context capacity.
+# CLAUDE.md
 
-File and Directory Inclusion Syntax
-Use the @ syntax to include files and directories in your Gemini prompts. The paths should be relative to WHERE you run the gemini command:
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Examples:
-Single file analysis:
+## Project Overview
 
-gemini -p "@src/main.py Explain this file's purpose and structure"
-Multiple files:
+This is a NIFTY Options Trading Bot that implements an automated breakout strategy using the Groww API. The bot monitors first 15-minute candles, detects breakouts, waits for retests, and sends trading signals via Telegram. It's designed as a defensive security tool for educational purposes.
 
-gemini -p "@package.json u/src/index.js Analyze the dependencies used in the code"
-Entire directory:
+## Core Architecture
 
-gemini -p "@src/ Summarize the architecture of this codebase"
-Multiple directories:
+### Main Components
 
-gemini -p "@src/ @tests/ Analyze test coverage for the source code"
-Current directory and subdirectories:
+- **OptimizedGrowwTrader** (`optimized_groww_trader.py`): Main trading engine with real-time data processing
+  - Manages GrowwAPI connection and live data feed
+  - Implements breakout detection and retest confirmation logic
+  - Handles strategy state management and signal generation
+  - Contains market timing validation and safety checks
 
-gemini -p "@./ Give me an overview of this entire project"
-# Or use --all_files flag:
-gemini --all_files -p "Analyze the project structure and dependencies"
-Implementation Verification Examples
-Check if a feature is implemented:
+- **TelegramNotifier** (`telegram_notifier.py`): Notification system with rate limiting
+  - Rate-limited message queue system
+  - Specialized notification functions for different events
+  - Daily scheduler for morning messages
+  - Async message handling with python-telegram-bot
 
-gemini -p "@src/ @lib/ Has dark mode been implemented in this codebase? Show me the relevant files and functions"
-Verify authentication implementation:
+### Strategy Implementation
 
-gemini -p "@src/ @middleware/ Is JWT authentication implemented? List all auth-related endpoints and middleware"
-Check for specific patterns:
+The bot follows a 4-phase strategy:
+1. **First 15-min candle capture** (9:15-9:30 AM)
+2. **5-minute breakout monitoring** (9:30 AM onwards)
+3. **1-minute retest confirmation** (after breakout)
+4. **Signal generation** (CE for bullish, PE for bearish)
 
-gemini -p "@src/ Are there any React hooks that handle WebSocket connections? List them with file paths"
-Verify error handling:
+### Data Flow
 
-gemini -p "@src/ @api/ Is proper error handling implemented for all API endpoints? Show examples of try-catch blocks"
-Check for rate limiting:
+1. Live NIFTY data via GrowwFeed WebSocket connection
+2. Real-time tick processing with candle aggregation
+3. Strategy state updates based on time and price conditions
+4. Telegram notifications for signals and status updates
 
-gemini -p "@backend/ @middleware/ Is rate limiting implemented for the API? Show the implementation details"
-Verify caching strategy:
+## Development Commands
 
-gemini -p "@src/ @lib/ @services/ Is Redis caching implemented? List all cache-related functions and their usage"
-Check for specific security measures:
+### Environment Setup
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
-gemini -p "@src/ @api/ Are SQL injection protections implemented? Show how user inputs are sanitized"
-Verify test coverage for features:
+# Configure environment
+cp .env.example .env
+# Edit .env with actual credentials
+```
 
-gemini -p "@src/payment/ @tests/ Is the payment processing module fully tested? List all test cases"
-When to Use Gemini CLI
-Use gemini -p when:
+### Running the Application
+```bash
+# Live trading (main entry point)
+python optimized_groww_trader.py
 
-Analyzing entire codebases or large directories
+# Test telegram notifications
+python telegram_notifier.py
+```
 
-Comparing multiple large files
+### Dependencies
+Core packages from `requirements.txt`:
+- `growwapi==0.0.8` - Groww API client for market data and trading
+- `python-telegram-bot` - Telegram bot integration
+- `pandas`, `numpy` - Data processing
+- `pytz` - Timezone handling for IST market hours
+- `python-dotenv` - Environment configuration
+- `pyotp` - TOTP authentication for Groww API
 
-Need to understand project-wide patterns or architecture
+## Deployment
 
-Current context window is insufficient for the task
+### AWS Lightsail Production Deployment
+```bash
+# Deploy to Lightsail instance
+chmod +x deploy_to_lightsail.sh
+./deploy_to_lightsail.sh <LIGHTSAIL_IP> ubuntu .env
 
-Working with files totaling more than 100KB
+# Monitor service
+ssh ubuntu@<IP> 'sudo systemctl status groww-trader'
+ssh ubuntu@<IP> 'sudo journalctl -u groww-trader -f'
+```
 
-Verifying if specific features, patterns, or security measures are implemented
+### Service Configuration
+- Systemd service: `deploy/groww-trader.service`
+- Security hardening with restricted permissions
+- Auto-restart on failure with 5-second delay
+- Logging to syslog with identifier 'groww-trader'
 
-Checking for the presence of certain coding patterns across the entire codebase
+## Critical Environment Variables
 
-Important Notes
-Paths in @ syntax are relative to your current working directory when invoking gemini
+Required in `.env` file:
+- `GROWW_API_KEY` - Groww trading API key
+- `GROWW_SECRET_KEY` - TOTP secret for authentication
+- `TELEGRAM_BOT_TOKEN` - Bot token from @BotFather
+- `TELEGRAM_CHAT_ID` - Target chat ID for notifications
 
-The CLI will include file contents directly in the context
+Optional:
+- `GROWW_ACCESS_TOKEN` - Pre-generated access token (auto-generates if missing)
+- `NIFTY_EXCHANGE_TOKEN` - Exchange token for NIFTY (defaults to "NIFTY")
 
-No need for --yolo flag for read-only analysis
+## Market Timing and Safety
 
-Gemini's context window can handle entire codebases that would overflow Claude's context
+- **Market Hours**: 9:15 AM - 3:30 PM IST only
+- **First 15-min Phase**: 9:15-9:30 AM for baseline capture
+- **Active Trading**: 9:30 AM onwards for breakout monitoring
+- **Weekend Safety**: No operations on Saturday/Sunday
+- **Rate Limiting**: 1-second minimum between Telegram messages
 
-When checking implementations, be specific about what you're looking for to get accurate results
+## File Structure Context
+
+- `deploy/` - Production deployment configurations
+- `trader_one.pem` - SSH key for Lightsail deployment
+- `.env` - Local environment configuration (gitignored)
+- `.env.example` - Template for environment setup
+
+## Security Considerations
+
+- No hardcoded credentials (uses environment variables)
+- Systemd security hardening in service file
+- Rate limiting on external API calls
+- Defensive design for educational use only
