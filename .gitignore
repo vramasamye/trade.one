@@ -1,3 +1,6 @@
 .env
 trader_one.pem
 venv/
+.claude/
+.crush/
+CRUSH.md

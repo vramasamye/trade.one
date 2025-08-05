@@ -72,6 +72,7 @@ class OptimizedGrowwTrader:
         }]
         # `subscribe_index_value` streams live index values; callback is triggered on every update
         self.feed.subscribe_index_value(instruments_list, on_data_received=self._on_tick)
+        logger.info("Subscribed to NIFTY index feed")
 
         # Start feed in background thread
         self.running = True
@@ -138,6 +139,7 @@ class OptimizedGrowwTrader:
             token_str = str(self.nifty_token)
             tick = data.get(token_str)
             if not tick:
+                logger.warning(f"Tick data not found for token {token_str} in data: {data}")
                 return
 
             timestamp = datetime.fromtimestamp(
@@ -158,10 +160,12 @@ class OptimizedGrowwTrader:
         """Run the WebSocket feed; reconnect on failure"""
         while self.running:
             try:
+                logger.info("Starting feed consumption")
                 # `consume` is a blocking call that keeps the WebSocket connection alive
                 self.feed.consume()
             except Exception as e:
                 logger.error(f"Feed disconnected: {e}. Reconnecting in 5 seconds...")
+                logger.exception("Traceback:")
                 time.sleep(5)  # Wait before attempting to reconnect
 
     # Legacy REST method retained for reference but no longer used
