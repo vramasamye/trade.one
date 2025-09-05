@@ -4,118 +4,114 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a NIFTY Options Trading Bot that implements an automated breakout strategy using the Groww API. The bot monitors first 15-minute candles, detects breakouts, waits for retests, and sends trading signals via Telegram. It's designed as a defensive security tool for educational purposes.
+This is a NIFTY Options Trading Bot that implements an automated breakout strategy using the Groww API. The bot monitors the first 15-minute candle (9:15-9:30 AM), detects breakouts, waits for retest confirmation, and sends trade alerts via Telegram.
 
-## Core Architecture
-
-### Main Components
-
-- **OptimizedGrowwTrader** (`optimized_groww_trader.py`): Main trading engine with real-time data processing
-  - Manages GrowwAPI connection and live data feed
-  - Implements breakout detection and retest confirmation logic
-  - Handles strategy state management and signal generation
-  - Contains market timing validation and safety checks
-
-- **TelegramNotifier** (`telegram_notifier.py`): Notification system with rate limiting
-  - Rate-limited message queue system
-  - Specialized notification functions for different events
-  - Daily scheduler for morning messages
-  - Async message handling with python-telegram-bot
-
-### Strategy Implementation
-
-The bot follows a 4-phase strategy:
-1. **First 15-min candle capture** (9:15-9:30 AM)
-2. **5-minute breakout monitoring** (9:30 AM onwards)
-3. **1-minute retest confirmation** (after breakout)
-4. **Signal generation** (CE for bullish, PE for bearish)
-
-### Data Flow
-
-1. Live NIFTY data via GrowwFeed WebSocket connection
-2. Real-time tick processing with candle aggregation
-3. Strategy state updates based on time and price conditions
-4. Telegram notifications for signals and status updates
-
-## Development Commands
-
-### Environment Setup
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with actual credentials
-```
+## Key Commands
 
 ### Running the Application
 ```bash
-# Live trading (main entry point)
-python optimized_groww_trader.py
-
-# Test telegram notifications
-python telegram_notifier.py
+python fixed_groww_trader.py  # Main trading bot (current active version)
 ```
 
-### Dependencies
-Core packages from `requirements.txt`:
-- `growwapi==0.0.8` - Groww API client for market data and trading
-- `python-telegram-bot` - Telegram bot integration
-- `pandas`, `numpy` - Data processing
-- `pytz` - Timezone handling for IST market hours
-- `python-dotenv` - Environment configuration
-- `pyotp` - TOTP authentication for Groww API
-
-## Deployment
-
-### AWS Lightsail Production Deployment
+### Dependencies Management
 ```bash
-# Deploy to Lightsail instance
+pip install -r requirements.txt  # Install all required packages
+```
+
+### Environment Setup
+```bash
+cp .env.example .env  # Create environment file
+# Edit .env with actual credentials
+```
+
+### Deployment (AWS Lightsail)
+```bash
 chmod +x deploy_to_lightsail.sh
 ./deploy_to_lightsail.sh <LIGHTSAIL_IP> ubuntu .env
-
-# Monitor service
-ssh ubuntu@<IP> 'sudo systemctl status groww-trader'
-ssh ubuntu@<IP> 'sudo journalctl -u groww-trader -f'
 ```
 
-### Service Configuration
-- Systemd service: `deploy/groww-trader.service`
-- Security hardening with restricted permissions
-- Auto-restart on failure with 5-second delay
-- Logging to syslog with identifier 'groww-trader'
+### Service Management (on deployed server)
+```bash
+sudo systemctl status groww-trader    # Check service status
+sudo journalctl -u groww-trader -f    # View real-time logs
+sudo systemctl restart groww-trader   # Restart service
+```
 
-## Critical Environment Variables
+## Architecture
+
+### Core Components
+
+1. **OptimizedGrowwTrader Class** (`fixed_groww_trader.py:51-100`)
+   - Main trading logic with breakout strategy implementation
+   - Manages state for first 15-minute high/low, breakouts, and retests
+   - Integrates with Groww API for live market data
+   - Uses threading for real-time feed processing
+
+2. **HistoricalFetcher Class** (`historical_fetcher.py:21-75`)
+   - Fetches historical candle data for first 5 and 15 minutes
+   - Used when bot starts after market open to get initial levels
+   - Provides fallback mechanism for missed early market data
+
+3. **TelegramNotifier Class** (`telegram_notifier.py:16-50`)
+   - Handles rate-limited message sending to Telegram
+   - Includes message formatting and queue management
+   - Integrates with main logger for trade alerts
+
+### Data Flow
+
+1. **Market Open (9:15 AM)**: Bot starts monitoring and capturing first 15-minute high/low
+2. **After 9:30 AM**: Switches to 5-minute candle monitoring for breakouts
+3. **Breakout Detection**: Monitors price crossing first 15-minute levels
+4. **Retest Phase**: Switches to 1-minute candles after breakout
+5. **Signal Generation**: Confirms entry with proper candle color and sends Telegram alert
+
+### State Management
+
+The bot maintains several critical state flags:
+- `first15_done`: First 15-minute candle capture complete
+- `breakout`: Direction of breakout ('BULLISH' or 'BEARISH')
+- `retest_touch_occurred`: Price touched breakout level again
+- `retest_confirmed`: Valid retest with correct candle color
+- `context_set`: Historical data loaded successfully
+
+## Environment Variables
 
 Required in `.env` file:
-- `GROWW_API_KEY` - Groww trading API key
-- `GROWW_SECRET_KEY` - TOTP secret for authentication
-- `TELEGRAM_BOT_TOKEN` - Bot token from @BotFather
-- `TELEGRAM_CHAT_ID` - Target chat ID for notifications
+```bash
+GROWW_API_KEY=<your_api_key>
+GROWW_SECRET_KEY=<totp_secret>
+TELEGRAM_BOT_TOKEN=<bot_token>
+TELEGRAM_CHAT_ID=<chat_id>
+NIFTY_EXCHANGE_TOKEN=<optional_override>
+```
 
-Optional:
-- `GROWW_ACCESS_TOKEN` - Pre-generated access token (auto-generates if missing)
-- `NIFTY_EXCHANGE_TOKEN` - Exchange token for NIFTY (defaults to "NIFTY")
+## Integration Points
 
-## Market Timing and Safety
+### Groww API
+- Uses `growwapi` package version 0.0.8
+- Handles authentication with TOTP-based access tokens
+- Real-time WebSocket feed for live price updates
+- Historical data API for backtesting and initial state
 
-- **Market Hours**: 9:15 AM - 3:30 PM IST only
-- **First 15-min Phase**: 9:15-9:30 AM for baseline capture
-- **Active Trading**: 9:30 AM onwards for breakout monitoring
-- **Weekend Safety**: No operations on Saturday/Sunday
-- **Rate Limiting**: 1-second minimum between Telegram messages
+### Telegram Integration
+- Custom `TelegramLogHandler` for log forwarding
+- Rate-limited messaging with threading
+- Formatted trade alerts with strike price suggestions
+- Daily scheduling for market notifications
 
-## File Structure Context
+## Development Notes
 
-- `deploy/` - Production deployment configurations
-- `trader_one.pem` - SSH key for Lightsail deployment
-- `.env` - Local environment configuration (gitignored)
-- `.env.example` - Template for environment setup
+- Virtual environment located in `tradevenv/`
+- Main entry point is `fixed_groww_trader.py` (active version)
+- Deployment configuration in `deploy/` directory
+- AWS Lightsail deployment script included
+- Service runs as systemd daemon on production
 
-## Security Considerations
+## Trading Strategy Implementation
 
-- No hardcoded credentials (uses environment variables)
-- Systemd security hardening in service file
-- Rate limiting on external API calls
-- Defensive design for educational use only
+The bot implements a specific intraday breakout strategy:
+1. Captures first 15-minute (9:15-9:30) high/low levels
+2. Monitors for 5-minute breakouts above/below these levels
+3. Requires retest of breakout level for confirmation
+4. Validates entry with correct candle color (green for CE, red for PE)
+5. Calculates optimal strike price rounded to nearest 50 points

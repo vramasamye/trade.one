@@ -4,3 +4,5 @@ venv/
 .claude/
 .crush/
 CRUSH.md
+__pycache__
+CLAUDE.md

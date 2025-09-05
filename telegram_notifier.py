@@ -1,10 +1,10 @@
 import os
 import time
 import threading
-from datetime import datetime, timedelta
+import asyncio
+from datetime import datetime
 import pytz
 import telegram
-import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,110 +12,123 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Rate limiting and message queue
-class TelegramNotifier:
+class AsyncTelegramNotifier:
     def __init__(self):
-        self.last_message_time = None
-        self.message_queue = []
-        self.rate_limit_seconds = 1  # Minimum 1 second between messages
-        self.lock = threading.Lock()
-        
-    def _can_send_message(self):
-        """Check if we can send a message based on rate limiting"""
-        if self.last_message_time is None:
-            return True
-        
-        time_since_last = time.time() - self.last_message_time
-        return time_since_last >= self.rate_limit_seconds
-    
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._queue = asyncio.Queue()
+        self._bot = None
+        self.rate_limit_seconds = 1.1  # Telegram API limit is 1 msg/sec
+
+    def start(self):
+        """Starts the background event loop and consumer task."""
+        if not self._thread.is_alive():
+            self._thread.start()
+            # Use asyncio.run_coroutine_threadsafe to start the consumer
+            # This is the correct way to interact with a loop in another thread
+            future = asyncio.run_coroutine_threadsafe(self._message_consumer(), self._loop)
+            # You might want to handle the future result or exceptions
+            print("Telegram notifier background thread started.")
+
+    def _run_loop(self):
+        """Runs the asyncio event loop."""
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
     def _format_message(self, message):
-        """Format message for better Telegram display"""
-        # Convert markdown-style formatting to Telegram's MarkdownV2
-        formatted_message = message.replace('**', '*')
-        return formatted_message
-    
+        """Formats message for Telegram, escaping special characters."""
+        # More robustly escape characters for MarkdownV2
+        # Basic escaping, can be improved
+        escape_chars = '_*[]()~`>#+-=|{}.!'
+        for char in escape_chars:
+            message = message.replace(char, f'\{char}')
+        return message
+
+    async def _message_consumer(self):
+        """The consumer task that sends messages from the queue."""
+        print("Message consumer started.")
+        if not TELEGRAM_BOT_TOKEN:
+            print("Telegram bot token not found.")
+            return
+            
+        self._bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+        
+        while True:
+            try:
+                message, priority = await self._queue.get()
+                
+                start_time = time.monotonic()
+                
+                try:
+                    # No need to format here if we use MarkdownV2 and escape properly
+                    await self._bot.send_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        text=message,
+                        parse_mode='MarkdownV2',
+                        disable_web_page_preview=True
+                    )
+                    print(f"Telegram message sent successfully at {datetime.now().strftime('%H:%M:%S')}")
+                except telegram.error.BadRequest as e:
+                    # If MarkdownV2 fails, try sending as plain text
+                    print(f"MarkdownV2 failed: {e}. Retrying with plain text.")
+                    await self._bot.send_message(
+                        chat_id=TELEGRAM_CHAT_ID,
+                        text=message,
+                        disable_web_page_preview=True
+                    )
+                except Exception as e:
+                    print(f"Error sending Telegram message: {e}")
+                
+                self._queue.task_done()
+                
+                # Enforce rate limit
+                elapsed = time.monotonic() - start_time
+                if elapsed < self.rate_limit_seconds:
+                    await asyncio.sleep(self.rate_limit_seconds - elapsed)
+                    
+            except Exception as e:
+                print(f"Critical error in message consumer: {e}")
+                # Avoid exiting the loop on error
+                await asyncio.sleep(5)
+
     def send_message(self, message, priority='normal'):
-        """Send message with rate limiting and formatting"""
+        """
+        Thread-safe method to queue a message for sending.
+        Returns True if queued, False if credentials are not set.
+        """
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
             print("Telegram credentials not found. Please set them in your .env file.")
             return False
         
-        with self.lock:
-            if not self._can_send_message():
-                # Add to queue if rate limited
-                self.message_queue.append((message, priority, time.time()))
-                return False
-            
-            try:
-                bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
-                formatted_message = self._format_message(message)
-                
-                # python-telegram-bot v20+ is fully async; wrap call in a short coroutine
-                async def _send():
-                    await bot.send_message(
-                        chat_id=TELEGRAM_CHAT_ID,
-                        text=formatted_message,
-                        parse_mode='Markdown',
-                        disable_web_page_preview=True
-                    )
-                asyncio.run(_send())
-                
-                self.last_message_time = time.time()
-                print(f"Telegram message sent successfully at {datetime.now().strftime('%H:%M:%S')}")
-                return True
-                
-            except Exception as e:
-                print(f"Error sending Telegram message: {e}")
-                return False
-    
-    def process_queue(self):
-        """Process queued messages"""
-        with self.lock:
-            if not self.message_queue or not self._can_send_message():
-                return
-            
-            # Sort by priority (high priority first)
-            self.message_queue.sort(key=lambda x: (x[1] != 'high', x[2]))
-            
-            if self.message_queue:
-                message, priority, timestamp = self.message_queue.pop(0)
-                self.send_message(message, priority)
+        # Use a thread-safe way to put items in the queue
+        # The loop is running in another thread, so we need to be careful
+        formatted_message = self._format_message(message)
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, (formatted_message, priority))
+        
+        return True # Message is queued, not necessarily sent
 
-# Global notifier instance
-_notifier = TelegramNotifier()
+# --- Global Instance and Interface ---
+
+_notifier = AsyncTelegramNotifier()
+_notifier.start()
 
 def send_telegram_message(message, priority='normal'):
     """
-    Enhanced Telegram message sender with rate limiting and formatting.
+
+    Queues a message to be sent asynchronously via Telegram.
     
     Args:
-        message (str): The message to send
-        priority (str): Message priority ('high', 'normal', 'low')
+        message (str): The message to send.
+        priority (str): Message priority ('high', 'normal', 'low'). Not yet implemented in queue logic, but preserved.
+    
+    Returns:
+        bool: True if the message was successfully queued, False otherwise.
     """
-    global _notifier
     return _notifier.send_message(message, priority)
 
-def process_message_queue():
-    """
-    Process any queued messages.
-    """
-    global _notifier
-    _notifier.process_queue()
+# The process_message_queue and _queue_processor are no longer needed
+# as the new async notifier handles this internally.
 
-# Background thread to process message queue
-def _queue_processor():
-    """Background thread to process message queue"""
-    while True:
-        try:
-            process_message_queue()
-            time.sleep(1)  # Check queue every second
-        except Exception as e:
-            print(f"Error in queue processor: {e}")
-            time.sleep(5)
-
-# Start background queue processor
-_queue_thread = threading.Thread(target=_queue_processor, daemon=True)
-_queue_thread.start()
 
 # Enhanced notification functions for specific events
 def send_startup_notification():
